@@ -7,9 +7,6 @@
 #include <kern/monitor.h>
 #include <kern/console.h>
 
-// Forward declaration
-int backtrace(int argc, char **argv, struct Trapframe *tf);
-
 // Test the stack backtrace function (lab 1 only)
 void
 test_backtrace(int x)
