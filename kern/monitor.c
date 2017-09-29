@@ -6,13 +6,16 @@
 #include <inc/memlayout.h>
 #include <inc/assert.h>
 #include <inc/x86.h>
+#include <inc/mmu.h>
 
 #include <kern/console.h>
 #include <kern/monitor.h>
 #include <kern/kdebug.h>
+#include <kern/pmap.h>
 
 #define CMDBUF_SIZE 80 // enough for one VGA text line
 
+uint32_t xtoi(char* input);
 
 struct Command {
   const char *name;
@@ -25,6 +28,9 @@ static struct Command commands[] = {
   { "help",      "Display this list of commands",        mon_help       },
   { "info-kern", "Display information about the kernel", mon_infokern   },
   { "backtrace", "Backtrace and display stack information", mon_backtrace   },
+  { "showmappings", "Show memory mappings", mon_showmappings   },
+  { "chmperm", "Change permission of a memory mapping", mon_chmperm   },
+  { "lsmem", "List memory content", mon_lsmem   },
 };
 #define NCOMMANDS (sizeof(commands)/sizeof(commands[0]))
 
@@ -84,6 +90,119 @@ mon_backtrace(int argc, char **argv, struct Trapframe *tf)
   return 0;
 }
 
+uint32_t xtoi(char* input) {
+    uint32_t result = 0;
+    input += 2;
+    while (*input) { 
+        // handle a-f
+        if (*input >= 'a') {
+            *input = '0' + *input - 'a' + 10;
+        }
+        result = result * 16 + *input - '0';
+        input++;
+    }
+    return result;
+}
+
+long int cstrtol(const char *nptr, char **endptr, int base) {
+    long int result = 0;
+    while (*nptr) { 
+        result = result * base + *nptr - '0';
+        nptr++;
+    }
+    return result;
+}
+
+int
+mon_showmappings(int argc, char **argv, struct Trapframe *tf)
+{
+    if (argc != 3) {
+        cprintf("Usage: showmapping 0xstart_addr 0xend_address\n"); 
+        return 0;
+    }
+    uint32_t start = xtoi(argv[1]);
+    uint32_t end = xtoi(argv[2]);
+    for (; start <= end; start += PGSIZE) {
+        pte_t *pte = pgdir_walk(kern_pgdir, (void *) start, 0);
+        if (pte && (*pte & PTE_P)) {
+            cprintf("virtual address 0x%x maps to physical address 0x%x, ", start, PTE_ADDR(*pte));
+            cprintf("permissions: PTE_U: %d, PTE_W: %d\n", (*pte & PTE_U) != 0, (*pte & PTE_W) != 0);
+        } else {
+            cprintf("virtual address 0x%x not mapped\n", start);
+        }
+    }
+    return 0;
+}
+
+int
+mon_chmperm(int argc, char **argv, struct Trapframe *tf)
+{
+    if (argc != 4) {
+        cprintf("Usage: chmperm 0xaddr U|W 0|1\n");
+        return 0;
+    }
+    uint32_t va = xtoi(argv[1]);
+    pte_t *pte = pgdir_walk(kern_pgdir, (void *) va, 0);
+    if (pte && (*pte & PTE_P)) {
+        cprintf("before chmperm: virtual address 0x%x maps to physical address 0x%x, ", va, PTE_ADDR(*pte));
+        cprintf("permissions: PTE_U: %d, PTE_W: %d\n", (*pte & PTE_U) != 0, (*pte & PTE_W) != 0);
+    } else {
+        cprintf("virtual address 0x%x not mapped\n", va);
+        return 0;
+    }
+    uint32_t new_perm = 0;
+    if (argv[2][0] == 'U') {
+        new_perm = PTE_U;
+    } else if (argv[2][0] == 'W') {
+        new_perm = PTE_W;
+    } else {
+        cprintf("Usage: chmperm 0xaddr U|W 0|1\n");
+        return 0;
+    }
+
+    if (argv[3][0] == '0') {
+        *pte = *pte & ~new_perm;
+    } else if (argv[3][0] == '1') {
+        *pte = *pte | new_perm;
+    } else {
+        cprintf("Usage: chmperm 0xaddr U|W 0|1\n");
+        return 0;
+    }
+    cprintf("after chmperm: virtual address 0x%x maps to physical address 0x%x, ", va, PTE_ADDR(*pte));
+    cprintf("permissions: PTE_U: %d, PTE_W: %d\n", (*pte & PTE_U) != 0, (*pte & PTE_W) != 0);
+    return 0;
+}
+
+int
+mon_lsmem(int argc, char **argv, struct Trapframe *tf)
+{
+    if (argc != 4) {
+        cprintf("Usage: lsmem v|p 0xaddr count\n");
+        return 0;
+    }
+    int input_addr = xtoi(argv[2]);
+    int count = cstrtol(argv[3], NULL, 10);
+    char *va = NULL;
+    if (argv[1][0] == 'v') {
+        va = (char *) input_addr;
+        int i;
+        for(i = 0; i < count; i++) {
+            cprintf("virtual address 0x%x ", input_addr + i);
+            cprintf("has content: 0x%02x\n", 0x000000FF & va[i]);
+        }
+    } else if (argv[1][0] == 'p') {
+        va = KADDR(input_addr);
+        int i;
+        for(i = 0; i < count; i++) {
+            cprintf("physical address 0x%x ", input_addr + i);
+            cprintf("has content: 0x%02x\n", 0x000000FF & va[i]);
+        }
+    } else {
+        cprintf("Usage: lsmem v|p 0xaddr count\n");
+        return 0;
+    }
+    return 0;
+}
 /***** Kernel monitor command interpreter *****/
 
 #define WHITESPACE "\t\r\n "
