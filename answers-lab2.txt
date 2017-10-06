@@ -1,0 +1,85 @@
+Q1.
+Answer:
+x should have the type uintptr_t. In C code, all pointers are pointing to virtual addresses. By our type convention in JOS, virtual addresses should use the type uintptr_t.
+
+Q2.
+Answer:
+Entry 1023 to 960, or virtual address 0xffffffff to 0xf0000000, points to the first 256MB of physical memory. The kernel code lives in this area.
+
+Entry 959, or virtual address 0xefe00000 to 0xefffffff, points to the area where bootstack lives.
+
+Entry 958 is unmapped.
+
+Entry 957 points to UVPT, which is a recursive reference to the current page directory,
+
+Entry 956 points to UPAGES, which is the user read-only image of all the physical page info's.
+
+Q3.
+Answer:
+The page translation hardware makes sure that user doesn't have access to kernel addresses by reading the PTE_U bit.
+
+Q4.
+Answer:
+256MB. KERNBASE is at 0xf0000000, which leaves only 256 MB below 4GB. When doing page_alloc(), we need to access physical pages by adding KERNBASE to physical addresses, which means KERNBASE + n <= 4GB, which means n <= 256MB.
+
+
+Q5.
+Answer:
+If we have 256MB memory:
+
+struct PageInfo *pages: 256MB / 4KB * 8B = 512KB
+page directory: 4KB
+page tables: 256MB / 4MB * 4KB = 256KB
+Total: 512KB + 4KB + 256KB = 772KB
+
+Q6.
+Answer:
+The transition to high memory happens at the command 'jmp *%eax'. We were still able to run in low memory after enabling paging and before this command because we also mapped virtual [0, 4M) to physical [0, 4M). The transition to high memory is necessary because later when we replace the virtual [0, 4M) to physical [0, 4M) mapping with kern_pgdir, our eip will no longer be able to operate in low memory (it becomes unmapped).
+
+Challenge Question:
+Answer:
+I implemented the extending JOS kernel monitor challenge problem. Specifically, I added three commands to JOS monitor:
+
+showmappings - Show memory mappings
+Usage: showmapping 0xstart_addr 0xend_address
+Sample output:
+K> showmappings 0xf0000000 0xf0003000
+virtual address 0xf0000000 maps to physical address 0x0, permissions: PTE_U: 0, PTE_W: 1
+virtual address 0xf0001000 maps to physical address 0x1000, permissions: PTE_U: 0, PTE_W: 1
+virtual address 0xf0002000 maps to physical address 0x2000, permissions: PTE_U: 0, PTE_W: 1
+virtual address 0xf0003000 maps to physical address 0x3000, permissions: PTE_U: 0, PTE_W: 1
+
+chmperm - Change permission of a memory mapping
+Usage: chmperm 0xaddr U|W 0|1
+K> chmperm 0xf0000000 U 1
+before chmperm: virtual address 0xf0000000 maps to physical address 0x0, permissions: PTE_U: 0, PTE_W: 1
+after chmperm: virtual address 0xf0000000 maps to physical address 0x0, permissions: PTE_U: 1, PTE_W: 1
+
+lsmem - List memory content
+Usage: lsmem v|p 0xaddr count
+K> lsmem v 0xf0100000 10
+virtual address 0xf0100000 has content: 0x02
+virtual address 0xf0100001 has content: 0xb0
+virtual address 0xf0100002 has content: 0xad
+virtual address 0xf0100003 has content: 0x1b
+virtual address 0xf0100004 has content: 0x00
+virtual address 0xf0100005 has content: 0x00
+virtual address 0xf0100006 has content: 0x00
+virtual address 0xf0100007 has content: 0x00
+virtual address 0xf0100008 has content: 0xfe
+virtual address 0xf0100009 has content: 0x4f
+
+K> lsmem p 0x00100000 10
+physical address 0x100000 has content: 0x02
+physical address 0x100001 has content: 0xb0
+physical address 0x100002 has content: 0xad
+physical address 0x100003 has content: 0x1b
+physical address 0x100004 has content: 0x00
+physical address 0x100005 has content: 0x00
+physical address 0x100006 has content: 0x00
+physical address 0x100007 has content: 0x00
+physical address 0x100008 has content: 0xfe
+physical address 0x100009 has content: 0x4f
+
+These new commands may come in handy for future labs!
+
