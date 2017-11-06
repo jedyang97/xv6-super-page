@@ -7,6 +7,7 @@
 #include <inc/string.h>
 #include <inc/stdarg.h>
 #include <inc/error.h>
+#include <inc/color.h>
 
 /*
  * Space or zero padding and a field width are supported for the numeric
@@ -92,8 +93,10 @@ vprintfmt(void (*putch)(int, void*), void *putdat, const char *fmt, va_list ap)
 
   while (1) {
     while ((ch = *(unsigned char*)fmt++) != '%') {
-      if (ch == '\0')
+      if (ch == '\0') {
+        color = 0x0700; // Turn back to default color
         return;
+      }
       putch(ch, putdat);
     }
 
@@ -208,10 +211,9 @@ process_precision:
     // (unsigned) octal
     case 'o':
       // Replace this with your code.
-      putch('X', putdat);
-      putch('X', putdat);
-      putch('X', putdat);
-      break;
+      num = getuint(&ap, lflag);
+      base = 8;
+      goto number;
 
     // pointer
     case 'p':
@@ -228,6 +230,10 @@ process_precision:
       base = 16;
 number:
       printnum(putch, putdat, num, base, width, padc);
+      break;
+
+    case 'q':
+      color = getint(&ap, lflag);
       break;
 
     // escaped '%' character

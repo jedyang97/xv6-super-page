@@ -1,0 +1,1 @@
+I have implemented the challenge question. You can test it out with %q label in cprintf() and pass in an integer argument (e.g. 0x0100 blue, 0x0200 cyan, 0x0300 green, etc.). I have also added a welcom message in kern/monitor.c with colors. If you do `make qemu` with graphics on, you should be able to see that welcome message in colors.
