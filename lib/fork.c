@@ -85,6 +85,16 @@ duppage(envid_t envid, unsigned pn)
   return 0;
 }
 
+// helper function for sfork()
+static int
+sduppage(envid_t envid, unsigned pn)
+{
+  sys_page_map(0, PGADDR(0, pn, 0),
+                   envid, PGADDR(0, pn, 0),
+                   (((uvpt[pn] & PTE_SYSCALL))));
+  return 0;
+}
+
 //
 // User-level fork with copy-on-write.
 // Set up our page fault handler appropriately.
@@ -141,6 +151,39 @@ fork(void)
 int
 sfork(void)
 {
-  panic("sfork not implemented");
-  return -E_INVAL;
+  set_pgfault_handler(pgfault);
+  envid_t envid = sys_exofork();
+  if (envid == 0) {
+    set_pgfault_handler(pgfault);
+    return 0;
+  }
+  if (envid < 0) {
+    panic("sfork: sys_exofork failed for env %e", envid);
+  }
+
+  uint32_t addr;
+  // shared memory
+  for (addr = 0; addr < USTACKTOP - PGSIZE; addr += PGSIZE) {
+    if ((uvpd[PDX(addr)] & PTE_P) && (uvpt[PGNUM(addr)] & PTE_P) &&
+            (uvpt[PGNUM(addr)] & PTE_U)) {
+        sduppage(envid, PGNUM(addr));
+    }
+  }
+  // normal copy-on-write mapping
+  for (; addr < USTACKTOP - PGSIZE; addr += PGSIZE) {
+    if ((uvpd[PDX(addr)] & PTE_P) && (uvpt[PGNUM(addr)] & PTE_P) &&
+            (uvpt[PGNUM(addr)] & PTE_U)) {
+        duppage(envid, PGNUM(addr));
+    }
+  }
+
+  // allocate user exception stack, this can't be shared with parent
+  if (sys_page_alloc(envid, (void *)(UXSTACKTOP-PGSIZE), PTE_U|PTE_W|PTE_P) < 0) {
+      panic("fork: sys_page_alloc failed when allocating page for user exception stack");
+  }
+  extern void _pgfault_upcall();
+  sys_env_set_pgfault_upcall(envid, _pgfault_upcall);
+  sys_env_set_status(envid, ENV_RUNNABLE);
+
+  return envid;
 }

@@ -1,3 +1,67 @@
+Challenge Question:
+Challenge! Implement a shared-memory fork() called sfork(). This version should have the parent and child share all their memory pages (so writes in one environment appear in the other) except for pages in the stack area, which should be treated in the usual copy-on-write manner. Modify user/forktree.c to use sfork() instead of regular fork(). Also, once you have finished implementing IPC in part C, use your sfork() to run user/pingpongs. You will have to find a new way to provide the functionality of the global thisenv pointer.
+
+Answer:
+
+To implement this functionality, we first add a sduppage() in lib/fork.c to mark a page as writable so that it becoms shared memory for the paren and child environment:
+
+// helper function for sfork()
+static int
+sduppage(envid_t envid, unsigned pn)
+{
+  sys_page_map(0, PGADDR(0, pn, 0),
+                   envid, PGADDR(0, pn, 0),
+                   (((uvpt[pn] & PTE_SYSCALL))));
+  return 0;
+}
+
+Then we need to implement sfork(), which is very similar to fork() except it uses sduppage() instead of duppage() for all environment memory other than the user stack:
+
+// Challenge!
+int
+sfork(void)
+{
+  set_pgfault_handler(pgfault);
+  envid_t envid = sys_exofork();
+  if (envid == 0) {
+    set_pgfault_handler(pgfault);
+    return 0;
+  }
+  if (envid < 0) {
+    panic("sfork: sys_exofork failed for env %e", envid);
+  }
+
+  uint32_t addr;
+  // shared memory
+  for (addr = 0; addr < USTACKTOP - PGSIZE; addr += PGSIZE) {
+    if ((uvpd[PDX(addr)] & PTE_P) && (uvpt[PGNUM(addr)] & PTE_P) &&
+            (uvpt[PGNUM(addr)] & PTE_U)) {
+        sduppage(envid, PGNUM(addr));
+    }
+  }
+  // normal copy-on-write mapping
+  for (; addr < USTACKTOP - PGSIZE; addr += PGSIZE) {
+    if ((uvpd[PDX(addr)] & PTE_P) && (uvpt[PGNUM(addr)] & PTE_P) &&
+            (uvpt[PGNUM(addr)] & PTE_U)) {
+        duppage(envid, PGNUM(addr));
+    }
+  }
+
+  // allocate user exception stack, this can't be shared with parent
+  if (sys_page_alloc(envid, (void *)(UXSTACKTOP-PGSIZE), PTE_U|PTE_W|PTE_P) < 0) {
+      panic("fork: sys_page_alloc failed when allocating page for user exception stack");
+  }
+  extern void _pgfault_upcall();
+  sys_env_set_pgfault_upcall(envid, _pgfault_upcall);
+  sys_env_set_status(envid, ENV_RUNNABLE);
+
+  return envid;
+}
+
+Lastly, we will need to use a macro in lib/libmain.c as the new way of accessing thisenv pointer:
+
+#define thisenv (&envs[ENVX(sys_getenvid())])
+
 Questions:
 
 1. Compare kern/mpentry.S side by side with boot/boot.S. Bearing in mind that kern/mpentry.S is compiled and linked to run above KERNBASE just like everything else in the kernel, what is the purpose of macro MPBOOTPHYS? Why is it necessary in kern/mpentry.S but not in boot/boot.S? In other words, what could go wrong if it were omitted in kern/mpentry.S? Hint: recall the differences between the link address and the load address that we have discussed in Lab 1.
