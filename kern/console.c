@@ -5,6 +5,7 @@
 #include <inc/kbdreg.h>
 #include <inc/string.h>
 #include <inc/assert.h>
+#include <inc/color.h>
 
 #include <kern/console.h>
 #include <kern/picirq.h>
@@ -166,9 +167,12 @@ cga_init(void)
 static void
 cga_putc(int c)
 {
-  // if no attribute given, then use black on white
+  // Use default color if color is not set
+  if (!color)
+    color = 0x0700;
+  // if no attribute given, use the global color setting
   if (!(c & ~0xFF))
-    c |= 0x0700;
+    c |= color;
 
   switch (c & 0xff) {
   case '\b':

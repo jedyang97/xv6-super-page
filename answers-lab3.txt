@@ -1,0 +1,67 @@
+Challenge Question:
+I implemented the first challenge problem: cleanup of installations in trap.c.
+
+First, change the macros in kern/trapentry.S so that each macro now also defines a .data entry.
+
+#define TRAPHANDLER(name, num)                        \
+    .text;                                            \
+    ...........                                       \
+    ...........                                       \
+    .data;                                            \
+    .long name                                        \
+
+#define TRAPHANDLER_NOEC(name, num)                   \
+    .text;                                            \
+    ...........                                       \
+    ...........                                       \
+    .data;                                            \
+    .long name                                        \
+
+Then, add this array before generating entry points:
+
+# handler array
+.data
+.globl handlers
+handlers:
+.text
+
+After these steps, we have a global array of handler functions named: handlers. Now we can clean up kern/trap.c by using a for loop:
+
+extern void (*handlers[])();
+int i = 0;
+for(; i < 20; i++) {
+  if (i == T_BRKPT) {
+    SETGATE(idt[i], 0, GD_KT, handlers[i], 3)
+  } else {
+    SETGATE(idt[i], 0, GD_KT, handlers[i], 0)
+  }
+}
+
+extern void (*handler48)();
+SETGATE(idt[48], 0, GD_KT, &handler48, 3)
+
+Now it's much cleaner.
+
+Questions:
+
+1. What is the purpose of having an individual handler function for each exception/interrupt? (i.e., if all exceptions/interrupts were delivered to the same handler, what feature that exists in the current implementation could not be provided?)
+
+Answer:
+We need individual handlers to set individual trapno. Otherwise, we wouldn't be able to dispatch traps based on their trapno.
+
+2. Did you have to do anything to make the user/softint program behave correctly? The grade script expects it to produce a general protection fault (trap 13), but softint’s code says int $14. Why should this produce interrupt vector 13? What happens if the kernel actually allows softint’s int $14 instruction to invoke the kernel’s page fault handler (which is interrupt vector 14)?
+
+Answer:
+The program triggers 13 instead of 14 because handler 14 has a DPL of 0, which user mode programs are not allowed to 'int' to, which causes a general protection fault - handled by 13. If we raise the DPL of 14 to 3 to allow user program to trigger it, the trapframe will be incorrect because user mode program doesn't set the error code.
+
+3. The break point test case will either generate a break point exception or a general protection fault depending on how you initialized the break point entry in the IDT (i.e., your call to SETGATE from trap_init). Why? How do you need to set it up in order to get the breakpoint exception to work as specified above and what incorrect setup would cause it to trigger a general protection fault?
+
+Answer:
+If we set the DPL for the break point handler to be 0, then user doesn't have permission to trigger that handler and we will trigger 13 - general protection fault. To get the behavior described in the lab, we need to set the DPL for the breakpoint handler to be 3.
+
+4. What do you think is the point of these mechanisms, particularly in light of what the user/softint test program does?
+
+Answer:
+The mechanism of generating 13 - general protection fault when user try to trigger a trap that he doesn't have privilege for is to prevent the user from affecting things in the kernel. Imagine we have a page fault handler that allocate a new physical page on page fault. If we don't prevent user from generating 14 - page fault trap, a user could keep letting the system allocate memory which will affect the kernel in a bad way.
+
+

@@ -66,17 +66,48 @@ _pgfault_upcall:
 	//
 	// LAB 4: Your code here.
 
+    // This is the structure of the user exception stack
+    /*
+                        <-- UXSTACKTOP
+    trap-time esp
+    trap-time eflags
+    trap-time eip
+    trap-time eax       start of struct PushRegs
+    trap-time ecx
+    trap-time edx
+    trap-time ebx
+    trap-time esp
+    trap-time ebp
+    trap-time esi
+    trap-time edi       end of struct PushRegs
+    tf_err (error code)
+    fault_va            <-- %esp when handler is run
+    */
+
+	movl 0x28(%esp), %edx # extract trap-time eip into edx
+
+    subl $0x4, 0x30(%esp) # modify trap-time esp
+    movl 0x30(%esp), %eax # extract the modified trap-time esp into eax
+    movl %edx, (%eax) # push the trap-time %eip onto the *trap-time* stack
+
+    addl $0x8, %esp # move esp to point to end of struct PushRegs
+
 	// Restore the trap-time registers.  After you do this, you
 	// can no longer modify any general-purpose registers.
 	// LAB 4: Your code here.
+	popal
 
 	// Restore eflags from the stack.  After you do this, you can
 	// no longer use arithmetic operations or anything else that
 	// modifies eflags.
 	// LAB 4: Your code here.
+    addl $0x4, %esp # skip trap-time eip
+    popfl
 
 	// Switch back to the adjusted trap-time stack.
 	// LAB 4: Your code here.
+    popl %esp
 
 	// Return to re-execute the instruction that faulted.
 	// LAB 4: Your code here.
+	ret
