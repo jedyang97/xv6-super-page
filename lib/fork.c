@@ -70,7 +70,11 @@ duppage(envid_t envid, unsigned pn)
 
   // LAB 4: Your code here.
   void *addr = (void*)(pn * PGSIZE);
-  if ((uvpt[pn] & PTE_COW) || (uvpt[pn] & PTE_W)) {
+  if (uvpt[pn] & PTE_SHARE) {
+    if (sys_page_map(0, addr, envid, addr, uvpt[pn] & PTE_SYSCALL) < 0) {
+      panic("duppage: sys_page_map (shared) failed for target env");
+    }
+  } else if ((uvpt[pn] & PTE_COW) || (uvpt[pn] & PTE_W)) {
     if (sys_page_map(0, addr, envid, addr, PTE_COW|PTE_U|PTE_P) < 0) {
       panic("duppage: sys_page_map failed for target env");
     }

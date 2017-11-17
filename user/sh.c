@@ -55,7 +55,14 @@ again:
       // then close the original 'fd'.
 
       // LAB 5: Your code here.
-      panic("< redirection not implemented");
+      if ((fd = open(t, O_RDONLY)) < 0) {
+        cprintf("open %s for read: %e", t, fd);
+        exit();
+      }
+      if (fd != 0) {
+        dup(fd, 0);
+        close(fd);
+      }
       break;
 
     case '>':                   // Output redirection
@@ -102,6 +109,42 @@ again:
         goto runit;
       }
       panic("| not implemented");
+      break;
+
+    case '&':
+      if ((r = pipe(p)) < 0) {
+        cprintf("pipe: %e", r);
+        exit();
+      }
+      if ((r = fork()) < 0) {
+        cprintf("fork: %e", r);
+        exit();
+      }
+      if (r == 0) {
+        dup(p[0], 0);
+        dup(p[1], 1);
+        close(p[0]);
+        close(p[1]);
+        goto runit;
+      } else {
+        cprintf("running %s in backgound\n", argv[0]);
+        close(p[1]);
+        close(p[0]);
+        goto again;
+      }
+      break;
+
+    case ';':
+      if ((r = fork()) < 0) {
+        cprintf("fork: %e", r);
+        exit();
+      }
+      if (r == 0) {
+        goto runit;
+      } else {
+        wait(r);
+        goto again;
+      }
       break;
 
     case 0:                     // String is complete

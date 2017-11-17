@@ -1,0 +1,142 @@
+Challenge Question: Add more features to the shell.
+
+Answer:
+For this challenge, I implemented the first two extension to shell:
+
+backgrounding commands (ls &)
+multiple commands per line (ls; echo hi)
+
+For background, I add a case statement in user/sh.c to handle the '&' operator. Basically, I fork a child environment to execute the current command (while hiding the output) and let the parent environment continue to execute the command after '&'.
+
++ 114     case '&':
++ 115       if ((r = pipe(p)) < 0) {
++ 116         cprintf("pipe: %e", r);
++ 117         exit();
++ 118       }
++ 119       if ((r = fork()) < 0) {
++ 120         cprintf("fork: %e", r);
++ 121         exit();
++ 122       }
++ 123       if (r == 0) {
++ 124         dup(p[0], 0);
++ 125         dup(p[1], 1);
++ 126         close(p[0]);
++ 127         close(p[1]);
++ 128         goto runit;
++ 129       } else {
++ 130         cprintf("running %s in backgound\n", argv[0]);
++ 131         close(p[1]);
++ 132         close(p[0]);
++ 133         goto again;
++ 134       }
++ 135       break;
+
+For multiple commands per line, I add another case statement to handle the ';' operator. Basically, I fork a child environment to run the current command and wait in the parent environment until the child environment finishes before executing the next command.
+
++ 137     case ';':
++ 138       if ((r = fork()) < 0) {
++ 139         cprintf("fork: %e", r);
++ 140         exit();
++ 141       }
++ 142       if (r == 0) {
++ 143         goto runit;
++ 144       } else {
++ 145         wait(r);
++ 146         goto again;
++ 147       }
++ 148       break;
+
+Example output:
+
+[Background]
+
+$ cat lorem & echo hello & ls
+running cat in backgound
+running echo in backgound
+newmotd
+motd
+lorem
+script
+testshell.key
+testshell.sh
+init
+cat
+echo
+init
+ls
+lsfd
+num
+forktree
+primes
+primespipe
+sh
+testfdsharing
+testkbd
+testpipe
+testpteshare
+testshell
+hello
+
+[Multiple commands]
+
+$ cat lorem; ls; sh script
+Lorem ipsum dolor sit amet, consectetur
+adipisicing elit, sed do eiusmod tempor
+incididunt ut labore et dolore magna
+aliqua. Ut enim ad minim veniam, quis
+nostrud exercitation ullamco laboris
+nisi ut aliquip ex ea commodo consequat.
+Duis aute irure dolor in reprehenderit
+in voluptate velit esse cillum dolore eu
+fugiat nulla pariatur. Excepteur sint
+occaecat cupidatat non proident, sunt in
+culpa qui officia deserunt mollit anim
+id est laborum.
+newmotd
+motd
+lorem
+script
+testshell.key
+testshell.sh
+init
+cat
+echo
+init
+ls
+lsfd
+num
+forktree
+primes
+primespipe
+sh
+testfdsharing
+testkbd
+testpipe
+testpteshare
+testshell
+hello
+This is from the script.
+    1 Lorem ipsum dolor sit amet, consectetur
+    2 adipisicing elit, sed do eiusmod tempor
+    3 incididunt ut labore et dolore magna
+    4 aliqua. Ut enim ad minim veniam, quis
+    5 nostrud exercitation ullamco laboris
+    6 nisi ut aliquip ex ea commodo consequat.
+    7 Duis aute irure dolor in reprehenderit
+    8 in voluptate velit esse cillum dolore eu
+    9 fugiat nulla pariatur. Excepteur sint
+   10 occaecat cupidatat non proident, sunt in
+   11 culpa qui officia deserunt mollit anim
+   12 id est laborum.
+These are my file descriptors.
+fd 0: name script isdir 0 size 132 dev file
+fd 1: name <cons> isdir 0 size 0 dev cons
+This is the end of the script.
+
+
+Question 1. Do you have to do anything else to ensure that this I/O privilege setting is saved and restored properly when you subsequently switch from one environment to another? Why?
+
+Answer:
+No. When switching environments, we will always go through the trap routine, which will automatically saves all registers, including EFLAGS, onto the kernel stack. And immediately before exiting kernel space and entering to the new environment, we will go through iret which will restore registers from trapframe.
+
+
