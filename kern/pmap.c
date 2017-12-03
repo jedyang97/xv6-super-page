@@ -47,9 +47,10 @@ i386_detect_memory(void)
   // Calculate the number of physical pages available in both base
   // and extended memory.
   if (npages_extmem) {
-    nsuper_pages = 2;
     npages = (EXTPHYSMEM / PGSIZE) + npages_extmem;
-    npages -= nsuper_pages * 1024;
+    npages = ROUNDDOWN(npages, PTSIZE);
+    nsuper_pages = 2;
+    npages -= nsuper_pages * (PTSIZE / PGSIZE);
   }
   else {
     nsuper_pages = 0;

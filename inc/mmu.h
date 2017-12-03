@@ -29,6 +29,8 @@
 // page number field of address
 #define PGNUM(la)       (((uintptr_t)(la)) >> PTXSHIFT)
 
+#define SPGNUM(la)      (((uintptr_t)(la)) >> PDXSHIFT)
+
 // page directory index
 #define PDX(la)         ((((uintptr_t)(la)) >> PDXSHIFT) & 0x3FF)
 

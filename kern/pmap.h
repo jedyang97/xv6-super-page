@@ -13,7 +13,9 @@ struct Env;
 extern char bootstacktop[], bootstack[];
 
 extern struct PageInfo *pages;
+extern struct PageInfo *super_pages;
 extern size_t npages;
+extern size_t nsuper_pages;
 
 extern pde_t *kern_pgdir;
 
@@ -74,6 +76,12 @@ page2pa(struct PageInfo *pp)
 	return (pp - pages) << PGSHIFT;
 }
 
+static inline physaddr_t
+super_page2pa(struct PageInfo *pp)
+{
+	return ((pp - super_pages) << PTSHIFT) + (npages << PGSHIFT);
+}
+
 static inline struct PageInfo*
 pa2page(physaddr_t pa)
 {
@@ -82,10 +90,29 @@ pa2page(physaddr_t pa)
 	return &pages[PGNUM(pa)];
 }
 
+static inline struct PageInfo*
+pa2super_page(physaddr_t pa)
+{
+	if (PGNUM(pa) < npages) {
+		panic("pa2super_page called with invalid pa (low)");
+	}
+	pa -= npages * PGSIZE;
+	if (SPGNUM(pa) >= nsuper_pages) {
+		panic("pa2super_page called with invalid pa (high)");
+	}
+	return &super_pages[SPGNUM(pa)];
+}
+
 static inline void*
 page2kva(struct PageInfo *pp)
 {
 	return KADDR(page2pa(pp));
+}
+
+static inline void*
+super_page2kva(struct PageInfo *pp)
+{
+	return KADDR(super_page2pa(pp));
 }
 
 pte_t *pgdir_walk(pde_t *pgdir, const void *va, int create);
