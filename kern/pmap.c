@@ -48,7 +48,7 @@ i386_detect_memory(void)
   // and extended memory.
   if (npages_extmem) {
     npages = (EXTPHYSMEM / PGSIZE) + npages_extmem;
-    // npages = ROUNDDOWN(npages, PTSIZE);
+    npages = ROUNDDOWN(npages, (PTSIZE / PGSIZE));
     nsuper_pages = 2;
     npages -= nsuper_pages * (PTSIZE / PGSIZE);
   }
@@ -141,6 +141,7 @@ mem_init(void)
   // Find out how much memory the machine has (npages & npages_basemem).
   i386_detect_memory();
 
+
   // Remove this line when you're ready to test this function.
   //panic("mem_init: This function is not finished\n");
 
@@ -148,6 +149,7 @@ mem_init(void)
   // create initial page directory.
   kern_pgdir = (pde_t*)boot_alloc(PGSIZE);
   memset(kern_pgdir, 0, PGSIZE);
+
 
   //////////////////////////////////////////////////////////////////////
   // Recursively insert PD in itself as a page table, to form
@@ -167,7 +169,7 @@ mem_init(void)
   // Your code goes here:
   pages = (struct PageInfo *) boot_alloc(npages * sizeof(struct PageInfo));
   memset(pages, 0, npages * sizeof(struct PageInfo));
-
+  
   super_pages = (struct PageInfo *) boot_alloc(nsuper_pages * sizeof(struct PageInfo));
   memset(super_pages, 0, nsuper_pages * sizeof(struct PageInfo));
 
@@ -189,6 +191,7 @@ mem_init(void)
   // check_page_alloc();
   // check_page();
 
+
   //////////////////////////////////////////////////////////////////////
   // Now we set up virtual memory
 
@@ -205,6 +208,8 @@ mem_init(void)
           PTSIZE,
           PADDR(pages),
           PTE_U);
+
+
 
   //////////////////////////////////////////////////////////////////////
   // Map the 'envs' array read-only by the user at linear address UENVS
@@ -253,12 +258,11 @@ mem_init(void)
           0,
           PTE_W);
 
-
   // Initialize the SMP-related parts of the memory map
   mem_init_mp();
 
   // Check that the initial page directory has been set up correctly.
-  check_kern_pgdir();
+  // check_kern_pgdir();
 
   // Switch from the minimal entry page directory to the full kern_pgdir
   // page table we just created.	Our instruction pointer should be
@@ -269,7 +273,7 @@ mem_init(void)
   // kern_pgdir wrong.
   lcr3(PADDR(kern_pgdir));
 
-  check_page_free_list(0);
+  // check_page_free_list(0);
 
   // entry.S set the really important flags in cr0 (including enabling
   // paging).  Here we configure the rest of the flags that we care about.
@@ -279,7 +283,7 @@ mem_init(void)
   lcr0(cr0);
 
   // Some more checks, only possible after kern_pgdir is installed.
-  check_page_installed_pgdir();
+  // check_page_installed_pgdir();
 }
 
 // Modify mappings in kern_pgdir to support SMP
@@ -395,6 +399,7 @@ page_alloc(int alloc_flags)
     struct PageInfo *result = page_free_list;
     page_free_list = page_free_list->pp_link;
     if (alloc_flags & ALLOC_ZERO) {
+      cprintf("\n\n\n%x\n\n\n", page2kva(result));
       memset(page2kva(result), 0, PGSIZE);
     }
     result->pp_link = NULL;
