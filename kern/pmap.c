@@ -13,6 +13,7 @@
 
 // These variables are set by i386_detect_memory()
 size_t npages;                          // Amount of physical memory (in pages)
+size_t nsuper_pages;
 static size_t npages_basemem;           // Amount of base memory (in pages)
 
 // These variables are set in mem_init()
@@ -45,10 +46,15 @@ i386_detect_memory(void)
 
   // Calculate the number of physical pages available in both base
   // and extended memory.
-  if (npages_extmem)
+  if (npages_extmem) {
+    nsuper_pages = 2;
     npages = (EXTPHYSMEM / PGSIZE) + npages_extmem;
-  else
+    npages -= nsuper_pages * 1024;
+  }
+  else {
+    nsuper_pages = 0;
     npages = npages_basemem;
+  }
 
   cprintf("Physical memory: %uK available, base = %uK, extended = %uK\n",
           npages * PGSIZE / 1024,
@@ -160,6 +166,9 @@ mem_init(void)
   // Your code goes here:
   pages = (struct PageInfo *) boot_alloc(npages * sizeof(struct PageInfo));
   memset(pages, 0, npages * sizeof(struct PageInfo));
+
+  super_pages = (struct PageInfo *) boot_alloc(nsuper_pages * sizeof(struct PageInfo));
+  memset(super_pages, 0, nsuper_pages * sizeof(struct PageInfo));
 
   //////////////////////////////////////////////////////////////////////
   // Make 'envs' point to an array of size 'NENV' of 'struct Env'.
@@ -356,6 +365,11 @@ page_init(void)
     pages[i].pp_ref = 0;
     pages[i].pp_link = page_free_list;
     page_free_list = &pages[i];
+  }
+  for (i = 0; i < nsuper_pages; i++) {
+    super_pages[i].pp_ref = 0;
+    super_pages[i].pp_link = super_page_free_list;
+    super_page_free_list = &super_pages[i];
   }
 }
 
