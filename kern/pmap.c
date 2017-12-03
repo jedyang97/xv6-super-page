@@ -18,7 +18,9 @@ static size_t npages_basemem;           // Amount of base memory (in pages)
 // These variables are set in mem_init()
 pde_t *kern_pgdir;                      // Kernel's initial page directory
 struct PageInfo *pages;                 // Physical page state array
+struct PageInfo *super_pages;           // Physical super page state array
 static struct PageInfo *page_free_list; // Free list of physical pages
+static struct PageInfo *super_page_free_list; // Free list of physical super pages
 
 
 // --------------------------------------------------------------
