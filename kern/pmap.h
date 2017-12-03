@@ -63,6 +63,13 @@ void	page_remove(pde_t *pgdir, void *va);
 struct PageInfo *page_lookup(pde_t *pgdir, void *va, pte_t **pte_store);
 void	page_decref(struct PageInfo *pp);
 
+struct PageInfo *super_page_alloc(int alloc_flags);
+void	super_page_free(struct PageInfo *pp);
+int	super_page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm);
+void	super_page_remove(pde_t *pgdir, void *va);
+struct PageInfo *super_page_lookup(pde_t *pgdir, void *va, pde_t **pde_store);
+void	super_page_decref(struct PageInfo *pp);
+
 void	tlb_invalidate(pde_t *pgdir, void *va);
 
 void *	mmio_map_region(physaddr_t pa, size_t size);
@@ -116,5 +123,6 @@ super_page2kva(struct PageInfo *pp)
 }
 
 pte_t *pgdir_walk(pde_t *pgdir, const void *va, int create);
+pde_t *super_pgdir_walk(pde_t *pgdir, const void *va, int create);
 
 #endif /* !JOS_KERN_PMAP_H */

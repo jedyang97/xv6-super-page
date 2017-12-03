@@ -48,7 +48,7 @@ i386_detect_memory(void)
   // and extended memory.
   if (npages_extmem) {
     npages = (EXTPHYSMEM / PGSIZE) + npages_extmem;
-    npages = ROUNDDOWN(npages, PTSIZE);
+    // npages = ROUNDDOWN(npages, PTSIZE);
     nsuper_pages = 2;
     npages -= nsuper_pages * (PTSIZE / PGSIZE);
   }
@@ -185,9 +185,9 @@ mem_init(void)
   // or page_insert
   page_init();
 
-  check_page_free_list(1);
-  check_page_alloc();
-  check_page();
+  // check_page_free_list(1);
+  // check_page_alloc();
+  // check_page();
 
   //////////////////////////////////////////////////////////////////////
   // Now we set up virtual memory
@@ -403,6 +403,21 @@ page_alloc(int alloc_flags)
   return NULL;
 }
 
+struct PageInfo *
+super_page_alloc(int alloc_flags)
+{
+  if (super_page_free_list != NULL) {
+    struct PageInfo *result = super_page_free_list;
+    super_page_free_list = super_page_free_list->pp_link;
+    if (alloc_flags & ALLOC_ZERO) {
+      memset(super_page2kva(result), 0, PTSIZE);
+    }
+    result->pp_link = NULL;
+    return result;
+  }
+  return NULL;
+}
+
 //
 // Return a page to the free list.
 // (This function should only be called when pp->pp_ref reaches 0.)
@@ -420,7 +435,20 @@ page_free(struct PageInfo *pp)
     panic("page_free: pp->pp_link must be NULL!");
   }
   pp->pp_link = page_free_list;  
-  page_free_list = pp;  
+  page_free_list = pp;
+}
+
+void
+super_page_free(struct PageInfo *pp)
+{
+  if (pp->pp_ref != 0) {
+    panic("super_page_free: pp->pp_ref must be zero!");
+  }
+  if (pp->pp_link != NULL) {
+    panic("super_page_free: pp->pp_link must be NULL!");
+  }
+  pp->pp_link = super_page_free_list;  
+  super_page_free_list = pp;
 }
 
 //
@@ -432,6 +460,13 @@ page_decref(struct PageInfo* pp)
 {
   if (--pp->pp_ref == 0)
     page_free(pp);
+}
+
+void
+super_page_decref(struct PageInfo* pp)
+{
+  if (--pp->pp_ref == 0)
+    super_page_free(pp);
 }
 
 // Given 'pgdir', a pointer to a page directory, pgdir_walk returns
@@ -470,13 +505,31 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
         return NULL;
       }
       new_pt->pp_ref++;
-      pgdir[pd_idx] = page2pa(new_pt) | PTE_P | PTE_W | PTE_U; // leave permission more permissive than stricly necessary
-    } else {
+      pgdir[pd_idx] = page2pa(new_pt) | PTE_P | PTE_W | PTE_U;
       return NULL;
     }
   }
   pte_t *page_table = KADDR(PTE_ADDR(pgdir[pd_idx]));
   return page_table + PTX(va);
+}
+
+pde_t *
+super_pgdir_walk(pde_t *pgdir, const void *va, int create)
+{
+  int pd_idx = PDX(va);
+  if (!(pgdir[pd_idx] & PTE_P)) {
+    if (create) {
+      struct PageInfo *new_sp = super_page_alloc(ALLOC_ZERO);
+      if (new_sp == NULL) {
+        return NULL;
+      }
+      new_sp->pp_ref++;
+      pgdir[pd_idx] = super_page2pa(new_sp) | PTE_P | PTE_W | PTE_U | PTE_PS;
+    } else {
+      return NULL;
+    }
+  }
+  return pgdir + pd_idx;
 }
 
 //
@@ -539,12 +592,29 @@ page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
   if (pte == NULL) {
     return -E_NO_MEM;
   }
-  // corner case: if we are re-inserting pp to va, increament pp_ref first to avoid pp being freed before inserted.
+  // corner case: if we are re-inserting pp to va, increment pp_ref first to avoid pp being freed before inserted.
   pp->pp_ref++;
   if (*pte & PTE_P) {
     page_remove(pgdir, va);
   }
   *pte = page2pa(pp) | PTE_P | perm;
+  return 0;
+}
+
+int
+super_page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
+{
+  // Fill this function in
+  pde_t *pde = super_pgdir_walk(pgdir, va, 1);
+  if (pde == NULL) {
+    return -E_NO_MEM;
+  }
+  // corner case: if we are re-inserting pp to va, increment pp_ref first to avoid pp being freed before inserted.
+  pp->pp_ref++;
+  if (*pde & PTE_P) {
+    super_page_remove(pgdir, va);
+  }
+  *pde = super_page2pa(pp) | PTE_P | perm;
   return 0;
 }
 
@@ -574,6 +644,20 @@ page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
   return pa2page(PTE_ADDR(*pte));
 }
 
+struct PageInfo *
+super_page_lookup(pde_t *pgdir, void *va, pde_t **pde_store)
+{
+  pde_t *pde = super_pgdir_walk(pgdir, va, 0);
+  if (pde == NULL || !(*pde & PTE_P)) {
+    return NULL;
+  } else {
+    if (pde_store != NULL) {
+      *pde_store = pde;
+    }
+  }
+  return pa2super_page(PADDR(va));
+}
+
 //
 // Unmaps the physical page at virtual address 'va'.
 // If there is no physical page at that address, silently does nothing.
@@ -601,6 +685,20 @@ page_remove(pde_t *pgdir, void *va)
 
   page_decref(pp);
   *pte = 0;
+  tlb_invalidate(pgdir, va);
+}
+
+void
+super_page_remove(pde_t *pgdir, void *va)
+{
+  pde_t *pde;
+  struct PageInfo *pp = super_page_lookup(pgdir, va, &pde);
+  if (pp == NULL || !(*pde & PTE_P )) {
+    return;
+  }
+  // remove second level pages
+  super_page_decref(pp);
+  *pde = 0;
   tlb_invalidate(pgdir, va);
 }
 
