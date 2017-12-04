@@ -635,10 +635,8 @@ super_page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 struct PageInfo *
 page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
 {
-  cprintf("\n\n\nPAGE LOOKUP\n\n\n");
   int pd_idx = PDX(va);
   if (!(pgdir[pd_idx] & PTE_PS)) { // regular PDE
-    cprintf("\n\n\nPAGE LOOKUP: regular\n\n\n");
     pte_t *pte = pgdir_walk(pgdir, va, 0);
     if (pte == NULL || !(*pte & PTE_P)) {
       return NULL;
@@ -647,14 +645,12 @@ page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
         *pte_store = pte;
       }
     }
-    // cprintf("\n\n\n%d, %d\n\n\n", PGNUM(PTE_ADDR(*pte)), npages);
     if (PGNUM(PTE_ADDR(*pte)) < npages) {
       return pa2page(PTE_ADDR(*pte));
     } else {
       return pa2super_page(PTE_ADDR(*pte));
     }
   } else { // super PDE
-    cprintf("\n\n\nPAGE LOOKUP: super\n\n\n");
     pde_t *pde = super_pgdir_walk(pgdir, va, 0);
     if (pde == NULL || !(*pde & PTE_P)) {
       return NULL;
@@ -674,10 +670,8 @@ page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
 struct PageInfo *
 super_page_lookup(pde_t *pgdir, void *va, pde_t **pde_store)
 {
-  cprintf("\n\n\nSUPER PAGE LOOKUP\n\n\n");
   int pd_idx = PDX(va);
   if (!(pgdir[pd_idx] & PTE_PS)) { // regular PDE
-    cprintf("\n\n\nSUPER PAGE LOOKUP: regular\n\n\n");
     pte_t *pte = pgdir_walk(pgdir, va, 0);
     if (pte == NULL || !(*pte & PTE_P)) {
       return NULL;
@@ -686,14 +680,12 @@ super_page_lookup(pde_t *pgdir, void *va, pde_t **pde_store)
         *pde_store = pte;
       }
     }
-    // cprintf("\n\n\n%d, %d\n\n\n", PGNUM(PTE_ADDR(*pte)), npages);
     if (PGNUM(PTE_ADDR(*pte)) < npages) {
       return pa2page(PTE_ADDR(*pte));
     } else {
       return pa2super_page(PTE_ADDR(*pte));
     }
   } else { // super PDE
-    cprintf("\n\n\nSUPER PAGE LOOKUP: super\n\n\n");
     pde_t *pde = super_pgdir_walk(pgdir, va, 0);
     if (pde == NULL || !(*pde & PTE_P)) {
       return NULL;
@@ -728,10 +720,8 @@ super_page_lookup(pde_t *pgdir, void *va, pde_t **pde_store)
 void
 page_remove(pde_t *pgdir, void *va)
 {
-  cprintf("\n\n\nPAGE REMOVE\n\n\n");
   int pd_idx = PDX(va);
   if (!(pgdir[pd_idx] & PTE_PS)) { // regular PDE
-    cprintf("\n\n\nPAGE REMOVE: regular\n\n\n");
     pte_t *pte;
     struct PageInfo *pp = page_lookup(pgdir, va, &pte);
     if (pp == NULL || !(*pte & PTE_P)) {
@@ -740,7 +730,6 @@ page_remove(pde_t *pgdir, void *va)
     page_decref(pp);
     *pte = 0;
   } else { // super PDE
-    cprintf("\n\n\nPAGE REMOVE: super\n\n\n");
     pde_t *pde;
     struct PageInfo *pp = super_page_lookup(pgdir, va, &pde);
     if (pp == NULL || !(*pde & PTE_P)) {
@@ -755,10 +744,8 @@ page_remove(pde_t *pgdir, void *va)
 void
 super_page_remove(pde_t *pgdir, void *va)
 {
-  cprintf("\n\n\nSUPER PAGE REMOVE\n\n\n");
   int pd_idx = PDX(va);
   if (!(pgdir[pd_idx] & PTE_PS)) { // regular PDE
-    cprintf("\n\n\nSUPER PAGE REMOVE: regular\n\n\n");
     pde_t *pde;
     struct PageInfo *pp = super_page_lookup(pgdir, va, &pde);
     if (pp == NULL || !(*pde & PTE_P)) {
@@ -773,7 +760,6 @@ super_page_remove(pde_t *pgdir, void *va)
       }
     }
   } else { // super PDE
-    cprintf("\n\n\nSUPER PAGE REMOVE: super\n\n\n");
     pde_t *pde;
     struct PageInfo *pp = super_page_lookup(pgdir, va, &pde);
     if (pp == NULL || !(*pde & PTE_P)) {
@@ -1371,18 +1357,18 @@ benchmark(void) {
   // allocate pages
   assert((page_at_va0 = page_alloc(0)));
   assert((super_page_at_va0 = super_page_alloc(0)));
-  assert((page_at_va1 = page_alloc(0)));
-  assert((super_page_at_va1 = super_page_alloc(0)));
-  assert((page_at_va2 = page_alloc(0)));
-  assert((super_page_at_va2 = super_page_alloc(0)));
-  assert((page_at_va3 = page_alloc(0)));
-  assert((super_page_at_va3 = super_page_alloc(0)));
+//  assert((page_at_va1 = page_alloc(0)));
+//  assert((super_page_at_va1 = super_page_alloc(0)));
+//  assert((page_at_va2 = page_alloc(0)));
+//  assert((super_page_at_va2 = super_page_alloc(0)));
+//  assert((page_at_va3 = page_alloc(0)));
+//  assert((super_page_at_va3 = super_page_alloc(0)));
 
   cprintf("benchmark() page_alloc succeeded\n");
 
   assert(!(page_insert(kern_pgdir, page_at_va0, va0, PTE_W)));
   assert(!(super_page_insert(kern_pgdir, super_page_at_va0, va0, PTE_W)));
-  // super_page_remove(kern_pgdir, va0);
+  super_page_remove(kern_pgdir, va0);
 
   // assert(!(page_insert(kern_pgdir, page_at_va1, va1, PTE_W)));
   // assert(!(super_page_insert(kern_pgdir, super_page_at_va1, va1, PTE_W)));
