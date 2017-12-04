@@ -23,6 +23,7 @@ struct PageInfo *super_pages;           // Physical super page state array
 static struct PageInfo *page_free_list; // Free list of physical pages
 static struct PageInfo *super_page_free_list; // Free list of physical super pages
 
+static void benchmark(void);
 
 // --------------------------------------------------------------
 // Detect machine's physical memory setup.
@@ -49,7 +50,7 @@ i386_detect_memory(void)
   if (npages_extmem) {
     npages = (EXTPHYSMEM / PGSIZE) + npages_extmem;
     npages = ROUNDDOWN(npages, (PTSIZE / PGSIZE));
-    nsuper_pages = 2;
+    nsuper_pages = 4;
     npages -= nsuper_pages * (PTSIZE / PGSIZE);
   }
   else {
@@ -187,10 +188,9 @@ mem_init(void)
   // or page_insert
   page_init();
 
-  // check_page_free_list(1);
-  // check_page_alloc();
-  // check_page();
-
+  check_page_free_list(1);
+  check_page_alloc();
+  check_page();
 
   //////////////////////////////////////////////////////////////////////
   // Now we set up virtual memory
@@ -208,8 +208,6 @@ mem_init(void)
           PTSIZE,
           PADDR(pages),
           PTE_U);
-
-
 
   //////////////////////////////////////////////////////////////////////
   // Map the 'envs' array read-only by the user at linear address UENVS
@@ -262,7 +260,7 @@ mem_init(void)
   mem_init_mp();
 
   // Check that the initial page directory has been set up correctly.
-  // check_kern_pgdir();
+  check_kern_pgdir();
 
   // Switch from the minimal entry page directory to the full kern_pgdir
   // page table we just created.	Our instruction pointer should be
@@ -273,7 +271,7 @@ mem_init(void)
   // kern_pgdir wrong.
   lcr3(PADDR(kern_pgdir));
 
-  // check_page_free_list(0);
+  check_page_free_list(0);
 
   // entry.S set the really important flags in cr0 (including enabling
   // paging).  Here we configure the rest of the flags that we care about.
@@ -283,7 +281,9 @@ mem_init(void)
   lcr0(cr0);
 
   // Some more checks, only possible after kern_pgdir is installed.
-  // check_page_installed_pgdir();
+  check_page_installed_pgdir();
+
+  benchmark();
 }
 
 // Modify mappings in kern_pgdir to support SMP
@@ -399,7 +399,6 @@ page_alloc(int alloc_flags)
     struct PageInfo *result = page_free_list;
     page_free_list = page_free_list->pp_link;
     if (alloc_flags & ALLOC_ZERO) {
-      cprintf("\n\n\n%x\n\n\n", page2kva(result));
       memset(page2kva(result), 0, PGSIZE);
     }
     result->pp_link = NULL;
@@ -511,6 +510,7 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
       }
       new_pt->pp_ref++;
       pgdir[pd_idx] = page2pa(new_pt) | PTE_P | PTE_W | PTE_U;
+    } else {
       return NULL;
     }
   }
@@ -555,10 +555,10 @@ boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm
   int i;
   for (i = 0; i < size / PGSIZE; i++) {
     pte_t *pte = pgdir_walk(pgdir, (void *) va, 1);
-    *pte = pa | PTE_P | perm;
     if (pte == NULL) {
       panic("boot_map_region: Cannot create page table!");
     }
+    *pte = pa | PTE_P | perm;
     va += PGSIZE;
     pa += PGSIZE;
   }
@@ -646,7 +646,11 @@ page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
       *pte_store = pte;
     }
   }
-  return pa2page(PTE_ADDR(*pte));
+  if (PGNUM(PTE_ADDR(*pte)) < npages) {
+    return pa2page(PTE_ADDR(*pte));
+  } else {
+    return pa2super_page(PTE_ADDR(*pte));
+  }
 }
 
 struct PageInfo *
@@ -660,7 +664,11 @@ super_page_lookup(pde_t *pgdir, void *va, pde_t **pde_store)
       *pde_store = pde;
     }
   }
-  return pa2super_page(PADDR(va));
+  if (PGNUM(PTE_ADDR(*pde)) < npages) {
+    return pa2page(PTE_ADDR(*pde));
+  } else {
+    return pa2super_page(PTE_ADDR(*pde));
+  }
 }
 
 //
@@ -681,29 +689,54 @@ super_page_lookup(pde_t *pgdir, void *va, pde_t **pde_store)
 void
 page_remove(pde_t *pgdir, void *va)
 {
-  // Fill this function in
-  pte_t *pte;
-  struct PageInfo *pp = page_lookup(pgdir, va, &pte);
-  if (pp == NULL || !(*pte & PTE_P )) {
-    return;
+  int pd_idx = PDX(va);
+  if (!(pgdir[pd_idx] & PTE_PS)) { // regular PDE
+    pte_t *pte;
+    struct PageInfo *pp = page_lookup(pgdir, va, &pte);
+    if (pp == NULL || !(*pte & PTE_P)) {
+      return;
+    }
+    page_decref(pp);
+    *pte = 0;
+  } else { // super PDE
+    pde_t *pde;
+    struct PageInfo *pp = super_page_lookup(pgdir, va, &pde);
+    if (pp == NULL || !(*pde & PTE_P)) {
+      return;
+    }
+    super_page_decref(pp);
+    *pde = 0;
   }
-
-  page_decref(pp);
-  *pte = 0;
   tlb_invalidate(pgdir, va);
 }
 
 void
 super_page_remove(pde_t *pgdir, void *va)
 {
-  pde_t *pde;
-  struct PageInfo *pp = super_page_lookup(pgdir, va, &pde);
-  if (pp == NULL || !(*pde & PTE_P )) {
-    return;
+  int pd_idx = PDX(va);
+  if (!(pgdir[pd_idx] & PTE_PS)) { // regular PDE
+    pde_t *pde;
+    struct PageInfo *pp = super_page_lookup(pgdir, va, &pde);
+    if (pp == NULL || !(*pde & PTE_P)) {
+      return;
+    }
+    pte_t *page_table = KADDR(PTE_ADDR(pgdir[pd_idx]));
+    int i;
+    for (i = 0; i < (PTSIZE / PGSIZE); i++) {
+      if (page_table[i] & PTE_P) {
+        page_decref(pa2page((physaddr_t)page_table[i]));
+        page_table[i] = 0;
+      }
+    }
+  } else { // super PDE
+    pde_t *pde;
+    struct PageInfo *pp = super_page_lookup(pgdir, va, &pde);
+    if (pp == NULL || !(*pde & PTE_P)) {
+      return;
+    }
+    super_page_decref(pp);
+    *pde = 0;
   }
-  // remove second level pages
-  super_page_decref(pp);
-  *pde = 0;
   tlb_invalidate(pgdir, va);
 }
 
@@ -718,6 +751,18 @@ tlb_invalidate(pde_t *pgdir, void *va)
   if (!curenv || curenv->env_pgdir == pgdir)
     invlpg(va);
 }
+
+// void
+// super_tlb_invalidate(pde_t *pgdir, void *va)
+// {
+//   // Flush the entry only if we're modifying the current address space.
+//   void *va_start = ROUNDDOWN(va, PTSIZE);
+//   void *va_end = ROUNDUP(va, PTSIZE);
+//   for (; va_start < va_end; va_start += PGSIZE) {
+//     if (!curenv || curenv->env_pgdir == pgdir)
+//       invlpg(va_start);
+//   }
+// }
 
 //
 // Reserve size bytes in the MMIO region and map [pa,pa+size) at this
@@ -1264,4 +1309,42 @@ check_page_installed_pgdir(void)
   page_free(pp0);
 
   cprintf("check_page_installed_pgdir() succeeded!\n");
+}
+
+static void
+benchmark(void) {
+  struct PageInfo *page_at_va0, *super_page_at_va0, *page_at_va1, *super_page_at_va1;
+  struct PageInfo *page_at_va2, *super_page_at_va2, *page_at_va3, *super_page_at_va3;
+
+  void *va0, *va1, *va2, *va3;
+
+  va0 = (void *)(0 * PTSIZE);
+  va1 = (void *)(1 * PTSIZE);
+  va2 = (void *)(2 * PTSIZE);
+  va3 = (void *)(3 * PTSIZE);
+
+  // allocate pages
+  assert((page_at_va0 = page_alloc(0)));
+  assert((super_page_at_va0 = super_page_alloc(0)));
+  assert((page_at_va1 = page_alloc(0)));
+  assert((super_page_at_va1 = super_page_alloc(0)));
+  assert((page_at_va2 = page_alloc(0)));
+  assert((super_page_at_va2 = super_page_alloc(0)));
+  assert((page_at_va3 = page_alloc(0)));
+  assert((super_page_at_va3 = super_page_alloc(0)));
+
+  cprintf("benchmark() page_alloc succeeded\n");
+
+  assert(!(page_insert(kern_pgdir, page_at_va0, va0, PTE_W)));
+  assert(!(super_page_insert(kern_pgdir, super_page_at_va0, va0, PTE_W)));
+  // super_page_remove(kern_pgdir, va0);
+
+  // assert(!(page_insert(kern_pgdir, page_at_va1, va1, PTE_W)));
+  // assert(!(super_page_insert(kern_pgdir, super_page_at_va1, va1, PTE_W)));
+  // assert(!(page_insert(kern_pgdir, page_at_va2, va2, PTE_W)));
+  // assert(!(super_page_insert(kern_pgdir, super_page_at_va2, va2, PTE_W)));
+  // assert(!(page_insert(kern_pgdir, page_at_va3, va3, PTE_W)));
+  // assert(!(super_page_insert(kern_pgdir, super_page_at_va3, va3, PTE_W)));
+
+  cprintf("benchmark() succeeded\n");
 }
