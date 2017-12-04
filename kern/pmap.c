@@ -435,9 +435,9 @@ page_free(struct PageInfo *pp)
   if (pp->pp_ref != 0) {
     panic("page_free: pp->pp_ref must be zero!");
   }
-  if (pp->pp_link != NULL) {
-    panic("page_free: pp->pp_link must be NULL!");
-  }
+  // if (pp->pp_link != NULL) {
+  //   panic("page_free: pp->pp_link must be NULL!");
+  // }
   pp->pp_link = page_free_list;  
   page_free_list = pp;
 }
@@ -448,9 +448,9 @@ super_page_free(struct PageInfo *pp)
   if (pp->pp_ref != 0) {
     panic("super_page_free: pp->pp_ref must be zero!");
   }
-  if (pp->pp_link != NULL) {
-    panic("super_page_free: pp->pp_link must be NULL!");
-  }
+  // if (pp->pp_link != NULL) {
+  //   panic("super_page_free: pp->pp_link must be NULL!");
+  // }
   pp->pp_link = super_page_free_list;  
   super_page_free_list = pp;
 }
@@ -524,12 +524,7 @@ super_pgdir_walk(pde_t *pgdir, const void *va, int create)
   int pd_idx = PDX(va);
   if (!(pgdir[pd_idx] & PTE_P)) {
     if (create) {
-      struct PageInfo *new_sp = super_page_alloc(ALLOC_ZERO);
-      if (new_sp == NULL) {
-        return NULL;
-      }
-      new_sp->pp_ref++;
-      pgdir[pd_idx] = super_page2pa(new_sp) | PTE_P | PTE_W | PTE_U | PTE_PS;
+      return pgdir + pd_idx;
     } else {
       return NULL;
     }
@@ -610,6 +605,7 @@ int
 super_page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 {
   pde_t *pde = super_pgdir_walk(pgdir, va, 1);
+  // cprintf("\n\n\nbefore super_page_insert: %x\n\n\n", *pde);
   if (pde == NULL) {
     return -E_NO_MEM;
   }
@@ -618,6 +614,7 @@ super_page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
     super_page_remove(pgdir, va);
   }
   *pde = super_page2pa(pp) | PTE_P | perm | PTE_PS;
+  // cprintf("\n\n\nsuper_page_insert: %x\n\n\n", *pde);
   return 0;
 }
 
@@ -744,6 +741,7 @@ page_remove(pde_t *pgdir, void *va)
 void
 super_page_remove(pde_t *pgdir, void *va)
 {
+  // cprintf("\n\n\nsuper_page_remove\n\n\n");
   int pd_idx = PDX(va);
   if (!(pgdir[pd_idx] & PTE_PS)) { // regular PDE
     pde_t *pde;
@@ -1344,8 +1342,10 @@ check_page_installed_pgdir(void)
 
 static void
 benchmark(void) {
-  struct PageInfo *page_at_va0, *super_page_at_va0, *page_at_va1, *super_page_at_va1;
-  struct PageInfo *page_at_va2, *super_page_at_va2, *page_at_va3, *super_page_at_va3;
+  cprintf("benchmark() started\n");
+
+  struct PageInfo *page0_at_va0, *page1_at_va0, *super_page0_at_va1, *super_page1_at_va1;
+  struct PageInfo *page2_at_va2, *super_page2_at_va2, *page3_at_va3, *super_page3_at_va3;
 
   void *va0, *va1, *va2, *va3;
 
@@ -1355,27 +1355,58 @@ benchmark(void) {
   va3 = (void *)(3 * PTSIZE);
 
   // allocate pages
-  assert((page_at_va0 = page_alloc(0)));
-  assert((super_page_at_va0 = super_page_alloc(0)));
-//  assert((page_at_va1 = page_alloc(0)));
-//  assert((super_page_at_va1 = super_page_alloc(0)));
-//  assert((page_at_va2 = page_alloc(0)));
-//  assert((super_page_at_va2 = super_page_alloc(0)));
-//  assert((page_at_va3 = page_alloc(0)));
-//  assert((super_page_at_va3 = super_page_alloc(0)));
+  assert((page0_at_va0 = page_alloc(1)));
+  assert((super_page0_at_va1 = super_page_alloc(1)));
+  assert((page1_at_va0 = page_alloc(1)));
+  assert((super_page1_at_va1 = super_page_alloc(1)));
+  assert((page2_at_va2 = page_alloc(1)));
+  assert((super_page2_at_va2 = super_page_alloc(1)));
+  assert((page3_at_va3 = page_alloc(1)));
+  assert((super_page3_at_va3 = super_page_alloc(1)));
+
+  memset(page2kva(page0_at_va0), 1, PGSIZE);
+  memset(super_page2kva(super_page0_at_va1), 1, PTSIZE);
+  memset(page2kva(page2_at_va2), 1, PGSIZE);
+  memset(super_page2kva(super_page3_at_va3), 1, PTSIZE);
+
+  memset(page2kva(page1_at_va0), 2, PGSIZE);
+  memset(super_page2kva(super_page1_at_va1), 2, PTSIZE);
+  memset(super_page2kva(super_page2_at_va2), 2, PTSIZE);
+  memset(page2kva(page3_at_va3), 2, PGSIZE);
 
   cprintf("benchmark() page_alloc succeeded\n");
 
-  assert(!(page_insert(kern_pgdir, page_at_va0, va0, PTE_W)));
-  assert(!(super_page_insert(kern_pgdir, super_page_at_va0, va0, PTE_W)));
-  super_page_remove(kern_pgdir, va0);
+  assert(!(page_insert(kern_pgdir, page0_at_va0, va0, PTE_W)));
+  assert(!(page_insert(kern_pgdir, page1_at_va0, va0, PTE_W)));
 
-  // assert(!(page_insert(kern_pgdir, page_at_va1, va1, PTE_W)));
-  // assert(!(super_page_insert(kern_pgdir, super_page_at_va1, va1, PTE_W)));
-  // assert(!(page_insert(kern_pgdir, page_at_va2, va2, PTE_W)));
-  // assert(!(super_page_insert(kern_pgdir, super_page_at_va2, va2, PTE_W)));
-  // assert(!(page_insert(kern_pgdir, page_at_va3, va3, PTE_W)));
-  // assert(!(super_page_insert(kern_pgdir, super_page_at_va3, va3, PTE_W)));
+  // cprintf("\n\n\nbenchmark: first super page pa: %x\n\n\n", super_page2pa(super_page1_at_va1));
+
+  assert(!(super_page_insert(kern_pgdir, super_page0_at_va1, va1, PTE_W)));
+  assert(!(super_page_insert(kern_pgdir, super_page1_at_va1, va1, PTE_W)));
+
+  assert(!(page_insert(kern_pgdir, page2_at_va2, va2, PTE_W)));
+  assert(!(super_page_insert(kern_pgdir, super_page2_at_va2, va2, PTE_W)));
+
+  assert(!(super_page_insert(kern_pgdir, super_page3_at_va3, va3, PTE_W)));
+  assert(!(page_insert(kern_pgdir, page3_at_va3, va3, PTE_W)));
+
+  cprintf("benchmark() page_insert succeeded\n");
+
+  // assert(*(uint32_t*)(va0) == 0x02020202U);
+  // pde_t *pde = super_pgdir_walk(kern_pgdir, va1, 0);
+  // cprintf("\n\n\n%x\n\n\n", *pde, *pde);
+  // uint32_t test = *(uint32_t*)(va1);
+  // cprintf("\n\n\n%x\n\n\n", test);
+  // assert(*(uint32_t*)(va1) == 0x02020202U);
+  // assert(*(uint32_t*)(va2) == 0x02020202U);
+  // assert(*(uint32_t*)(va3) == 0x02020202U);
+
+  page_remove(kern_pgdir, va0);
+  super_page_remove(kern_pgdir, va1);
+  super_page_remove(kern_pgdir, va2);
+  page_remove(kern_pgdir, va3);
+
+  cprintf("benchmark() page_remove succeeded\n");
 
   cprintf("benchmark() succeeded\n");
 }

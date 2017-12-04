@@ -42,7 +42,7 @@ _paddr(const char *file, int line, void *kva)
 static inline void*
 _kaddr(const char *file, int line, physaddr_t pa)
 {
-	if (PGNUM(pa) >= npages)
+	if (PGNUM(pa) >= (npages + nsuper_pages * (PTSIZE / PGSIZE)))
 		_panic(file, line, "KADDR called with invalid pa %08lx", pa);
 	return (void *)(pa + KERNBASE);
 }
@@ -80,12 +80,14 @@ void	user_mem_assert(struct Env *env, const void *va, size_t len, int perm);
 static inline physaddr_t
 page2pa(struct PageInfo *pp)
 {
+	// cprintf("\n\n\n%d\n\n\n", pp - pages);
 	return (pp - pages) << PGSHIFT;
 }
 
 static inline physaddr_t
 super_page2pa(struct PageInfo *pp)
 {
+	// cprintf("\n\n\n%d\n\n\n", pp - super_pages);
 	return ((pp - super_pages) << PTSHIFT) + (npages << PGSHIFT);
 }
 
@@ -100,6 +102,7 @@ pa2page(physaddr_t pa)
 static inline struct PageInfo*
 pa2super_page(physaddr_t pa)
 {
+	cprintf("\n\n\n%d\n\n\n", PGNUM(pa));
 	if (PGNUM(pa) < npages) {
 		panic("pa2super_page called with invalid pa (low)");
 	}
