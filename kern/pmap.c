@@ -609,17 +609,15 @@ page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 int
 super_page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 {
-  // Fill this function in
   pde_t *pde = super_pgdir_walk(pgdir, va, 1);
   if (pde == NULL) {
     return -E_NO_MEM;
   }
-  // corner case: if we are re-inserting pp to va, increment pp_ref first to avoid pp being freed before inserted.
   pp->pp_ref++;
   if (*pde & PTE_P) {
     super_page_remove(pgdir, va);
   }
-  *pde = super_page2pa(pp) | PTE_P | perm;
+  *pde = super_page2pa(pp) | PTE_P | perm | PTE_PS;
   return 0;
 }
 
@@ -637,37 +635,78 @@ super_page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 struct PageInfo *
 page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
 {
-  // Fill this function in
-  pte_t *pte = pgdir_walk(pgdir, va, 0);
-  if (pte == NULL || !(*pte & PTE_P)) {
-    return NULL;
-  } else {
-    if (pte_store != NULL) {
-      *pte_store = pte;
+  cprintf("\n\n\nPAGE LOOKUP\n\n\n");
+  int pd_idx = PDX(va);
+  if (!(pgdir[pd_idx] & PTE_PS)) { // regular PDE
+    cprintf("\n\n\nPAGE LOOKUP: regular\n\n\n");
+    pte_t *pte = pgdir_walk(pgdir, va, 0);
+    if (pte == NULL || !(*pte & PTE_P)) {
+      return NULL;
+    } else {
+      if (pte_store != NULL) {
+        *pte_store = pte;
+      }
     }
-  }
-  if (PGNUM(PTE_ADDR(*pte)) < npages) {
-    return pa2page(PTE_ADDR(*pte));
-  } else {
-    return pa2super_page(PTE_ADDR(*pte));
+    // cprintf("\n\n\n%d, %d\n\n\n", PGNUM(PTE_ADDR(*pte)), npages);
+    if (PGNUM(PTE_ADDR(*pte)) < npages) {
+      return pa2page(PTE_ADDR(*pte));
+    } else {
+      return pa2super_page(PTE_ADDR(*pte));
+    }
+  } else { // super PDE
+    cprintf("\n\n\nPAGE LOOKUP: super\n\n\n");
+    pde_t *pde = super_pgdir_walk(pgdir, va, 0);
+    if (pde == NULL || !(*pde & PTE_P)) {
+      return NULL;
+    } else {
+      if (pte_store != NULL) {
+        *pte_store = pde;
+      }
+    }
+    if (PGNUM(PTE_ADDR(*pde)) < npages) {
+      return pa2page(PTE_ADDR(*pde));
+    } else {
+      return pa2super_page(PTE_ADDR(*pde));
+    }
   }
 }
 
 struct PageInfo *
 super_page_lookup(pde_t *pgdir, void *va, pde_t **pde_store)
 {
-  pde_t *pde = super_pgdir_walk(pgdir, va, 0);
-  if (pde == NULL || !(*pde & PTE_P)) {
-    return NULL;
-  } else {
-    if (pde_store != NULL) {
-      *pde_store = pde;
+  cprintf("\n\n\nSUPER PAGE LOOKUP\n\n\n");
+  int pd_idx = PDX(va);
+  if (!(pgdir[pd_idx] & PTE_PS)) { // regular PDE
+    cprintf("\n\n\nSUPER PAGE LOOKUP: regular\n\n\n");
+    pte_t *pte = pgdir_walk(pgdir, va, 0);
+    if (pte == NULL || !(*pte & PTE_P)) {
+      return NULL;
+    } else {
+      if (pde_store != NULL) {
+        *pde_store = pte;
+      }
     }
-  }
-  if (PGNUM(PTE_ADDR(*pde)) < npages) {
-    return pa2page(PTE_ADDR(*pde));
-  } else {
-    return pa2super_page(PTE_ADDR(*pde));
+    // cprintf("\n\n\n%d, %d\n\n\n", PGNUM(PTE_ADDR(*pte)), npages);
+    if (PGNUM(PTE_ADDR(*pte)) < npages) {
+      return pa2page(PTE_ADDR(*pte));
+    } else {
+      return pa2super_page(PTE_ADDR(*pte));
+    }
+  } else { // super PDE
+    cprintf("\n\n\nSUPER PAGE LOOKUP: super\n\n\n");
+    pde_t *pde = super_pgdir_walk(pgdir, va, 0);
+    if (pde == NULL || !(*pde & PTE_P)) {
+      return NULL;
+    } else {
+      if (pde_store != NULL) {
+        *pde_store = pde;
+      }
+    }
+    if (PGNUM(PTE_ADDR(*pde)) < npages) {
+      return pa2page(PTE_ADDR(*pde));
+    } else {
+      return pa2super_page(PTE_ADDR(*pde));
+    }
   }
 }
 
@@ -689,8 +728,10 @@ super_page_lookup(pde_t *pgdir, void *va, pde_t **pde_store)
 void
 page_remove(pde_t *pgdir, void *va)
 {
+  cprintf("\n\n\nPAGE REMOVE\n\n\n");
   int pd_idx = PDX(va);
   if (!(pgdir[pd_idx] & PTE_PS)) { // regular PDE
+    cprintf("\n\n\nPAGE REMOVE: regular\n\n\n");
     pte_t *pte;
     struct PageInfo *pp = page_lookup(pgdir, va, &pte);
     if (pp == NULL || !(*pte & PTE_P)) {
@@ -699,6 +740,7 @@ page_remove(pde_t *pgdir, void *va)
     page_decref(pp);
     *pte = 0;
   } else { // super PDE
+    cprintf("\n\n\nPAGE REMOVE: super\n\n\n");
     pde_t *pde;
     struct PageInfo *pp = super_page_lookup(pgdir, va, &pde);
     if (pp == NULL || !(*pde & PTE_P)) {
@@ -713,8 +755,10 @@ page_remove(pde_t *pgdir, void *va)
 void
 super_page_remove(pde_t *pgdir, void *va)
 {
+  cprintf("\n\n\nSUPER PAGE REMOVE\n\n\n");
   int pd_idx = PDX(va);
   if (!(pgdir[pd_idx] & PTE_PS)) { // regular PDE
+    cprintf("\n\n\nSUPER PAGE REMOVE: regular\n\n\n");
     pde_t *pde;
     struct PageInfo *pp = super_page_lookup(pgdir, va, &pde);
     if (pp == NULL || !(*pde & PTE_P)) {
@@ -729,6 +773,7 @@ super_page_remove(pde_t *pgdir, void *va)
       }
     }
   } else { // super PDE
+    cprintf("\n\n\nSUPER PAGE REMOVE: super\n\n\n");
     pde_t *pde;
     struct PageInfo *pp = super_page_lookup(pgdir, va, &pde);
     if (pp == NULL || !(*pde & PTE_P)) {
